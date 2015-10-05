@@ -8,12 +8,12 @@
 
 I use CMake as building tool to work with different IDEs and compilers.
 My CMake version is 3.2.3 but there is no reason for errors when different version is used.
-For example, build commands for Visual Studio 2015
+For example, build commands for Visual Studio 2015 (out-of-source build)
 
 ```
 1. mkdir build
 2. cd build
-3. cmake -G "Visual Studio 14 2015" ..
+3. cmake -G "Visual Studio 14 2015 Win64" ..
 ```
 After this commands you can find `build` folder with VS 2015 solution.
 
