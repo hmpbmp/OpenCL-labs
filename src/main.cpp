@@ -110,10 +110,17 @@ int main(int argc, char** argv)
 
     
     //Define work-group and work-item sizes
-    const size_t X_LOCAL_DIM = (int)(sqrt(max_wg_size));
-    const size_t Y_LOCAL_DIM = (int)(sqrt(max_wg_size));
+    int limit = (int)sqrt(max_wg_size);
+    int d;
+    for (d = limit; d > 0; d--)
+    {
+      if (M % d == 0 && K % d == 0) break;
+    }
+    printf("Selected block size for one dimension: %d\n", d);
+    const size_t X_LOCAL_DIM = d;//(int)(sqrt(max_wg_size));
+    const size_t Y_LOCAL_DIM = d;//(int)(sqrt(max_wg_size));
     const size_t X_GLOBAL_DIM = M;
-      const size_t Y_GLOBAL_DIM = K;
+    const size_t Y_GLOBAL_DIM = K;
 
     //Load kernel from OpenCL source
     auto matrix_mult = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, int , int, int>(program, "matrix_mult");
