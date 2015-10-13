@@ -95,6 +95,8 @@ int main(int argc, char** argv)
       }
     }
 
+    input.close();
+
     //Allocate device buffers for data
     int size_A = sizeof(float) * M * N;
     int size_B = sizeof(float) * N * K;
@@ -111,16 +113,15 @@ int main(int argc, char** argv)
     
     //Define work-group and work-item sizes
     int limit = (int)sqrt(max_wg_size);
-    int d;
-    for (d = limit; d > 0; d--)
-    {
-      if (M % d == 0 && K % d == 0) break;
-    }
-    printf("Selected block size for one dimension: %d\n", d);
-    const size_t X_LOCAL_DIM = d;//(int)(sqrt(max_wg_size));
-    const size_t Y_LOCAL_DIM = d;//(int)(sqrt(max_wg_size));
-    const size_t X_GLOBAL_DIM = M;
-    const size_t Y_GLOBAL_DIM = K;
+
+    int d1, d2;
+    d1 = M + limit - M % limit;
+    d2 = K + limit - K % limit;
+    const size_t X_LOCAL_DIM = limit;//(int)(sqrt(max_wg_size));
+    const size_t Y_LOCAL_DIM = limit;//(int)(sqrt(max_wg_size));
+    const size_t X_GLOBAL_DIM = d1;
+    const size_t Y_GLOBAL_DIM = d2;
+
 
     //Load kernel from OpenCL source
     auto matrix_mult = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, int , int, int>(program, "matrix_mult");
@@ -130,7 +131,7 @@ int main(int argc, char** argv)
     //Copy from device to host
     queue.enqueueReadBuffer(dev_C, CL_TRUE, 0, size_C, C);
 
-    FILE *f = std::fopen(argv[2], "w");
+    FILE *f = std::fopen(argv[2], "w+");
     if (f == NULL) {
       throw std::ios_base::failure(NULL);
     }
@@ -140,6 +141,7 @@ int main(int argc, char** argv)
       }
       fprintf(f, "\n");
     }
+    fclose(f);
   }
   catch(cl::Error const & err){
     std::cout << std::endl << "Error type:" << err.what() << std::endl;
