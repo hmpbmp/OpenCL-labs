@@ -1,7 +1,7 @@
 ## OpenCL/CUDA laboratory
 
 #### In this repository I keep source code for my OpenCL laboratories
-[First laboratory task](https://docs.google.com/viewer?a=v&pid=sites&srcid=ZGVmYXVsdGRvbWFpbnxwcmltYXRjdWRhfGd4OjRhZmZiN2QzMzBlNzVhN2U)
+[Second laboratory task](https://docs.google.com/viewer?a=v&pid=sites&srcid=ZGVmYXVsdGRvbWFpbnxwcmltYXRjdWRhfGd4OjczZWE5MmFkZjk1N2EyZGI)
 
 
 ## Build
@@ -19,12 +19,6 @@ After this commands you can find `build` folder with VS 2015 solution.
 
 ## Input data
 
-Input is generated using Python script `generate_data.py`. It is nessesary to have `build` folder already created.
-It creates `input.txt` file in working directory and `py_output.txt` to compare with program result.
-Example of usage:
-```
-python generate_data.py 1024 512 2048
-```
 ## How to use
 Program takes two command line arguments: input and output files.
 ```
