@@ -56,7 +56,7 @@ int main(int argc, char** argv)
     cl::CommandQueue queue(context, devices[0], CL_QUEUE_PROFILING_ENABLE);
 
     //Load OpenCL source 
-    std::ifstream cl_file("../src/matrix_mult.cl");
+    std::ifstream cl_file("../src/convolution.cl");
     cl_file.exceptions(std::ifstream::failbit);
 
     std::string cl_string(std::istreambuf_iterator<char>(cl_file), (std::istreambuf_iterator<char>()));
@@ -76,31 +76,44 @@ int main(int argc, char** argv)
     }
 
     //Create data to send to kernel
-    int M, N, K;
-    input >> M >> N >> K;
+    int M, N;
+    input >> N >> M;
+    int K = N + M;
 
+    float *A = new float [K * K];
+    float *B = new float [M * M];
+    float *C = new float [K * K];
 
-    float *A = new float [M * N];
-    float *B = new float [N * K];
-    float *C = new float [M * K];
+    for (int j = 0; j < K; ++j)
+    {
+      A[j] = 0;
+      A[(K - 1) * K + j] = 0;
+    }
 
-    for (int i = 0; i < M; ++i) {
-      for (int j = 0; j < N; ++j) {
-        input >> A[N * i + j];
+    for (int i =  M / 2; i < K - M / 2; ++i) {
+      for (int j = 0; j < M / 2; ++j) {
+        A[K * i + j] = 0;
+      }
+      for (int j = M / 2; j < K - M / 2; ++j) {
+        input >> A[K * i + j];
+      }
+      for (int j = K - M / 2; j < K; ++j) {
+        A[K * i + j] = 0;
       }
     }
-    for (int i = 0; i < N; ++i) {
-      for (int j = 0; j < K; ++j) {
-        input >> B[K * i + j];
+
+    for (int i = 0; i < M; ++i) {
+      for (int j = 0; j < M; ++j) {
+        input >> B[M * i + j];
       }
     }
 
     input.close();
 
     //Allocate device buffers for data
-    int size_A = sizeof(float) * M * N;
-    int size_B = sizeof(float) * N * K;
-    int size_C = sizeof(float) * M * K;
+    int size_A = sizeof(float) * (N + M) * (N + M);
+    int size_B = sizeof(float) * M * M;
+    int size_C = sizeof(float) * (N + M) * (N + M);
 
     cl::Buffer dev_A(context, CL_MEM_READ_ONLY, size_A);
     cl::Buffer dev_B(context, CL_MEM_READ_ONLY, size_B);
@@ -114,19 +127,17 @@ int main(int argc, char** argv)
     //Define work-group and work-item sizes
     int limit = (int)sqrt(max_wg_size);
 
-    int d1, d2;
-    d1 = M + limit - M % limit;
-    d2 = K + limit - K % limit;
-    const size_t X_LOCAL_DIM = limit;//(int)(sqrt(max_wg_size));
-    const size_t Y_LOCAL_DIM = limit;//(int)(sqrt(max_wg_size));
-    const size_t X_GLOBAL_DIM = d1;
-    const size_t Y_GLOBAL_DIM = d2;
+
+    const size_t X_LOCAL_DIM = M;//(int)(sqrt(max_wg_size));
+    const size_t Y_LOCAL_DIM = M;//(int)(sqrt(max_wg_size));
+    const size_t X_GLOBAL_DIM = 0;// d1;
+    const size_t Y_GLOBAL_DIM = 0;//;
 
 
     //Load kernel from OpenCL source
-    auto matrix_mult = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, int , int, int>(program, "matrix_mult");
+    auto conv_global = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, int , int, int>(program, "conv_global");
     cl::EnqueueArgs eargs(queue, cl::NullRange, cl::NDRange(X_GLOBAL_DIM, Y_GLOBAL_DIM), cl::NDRange(X_LOCAL_DIM, Y_LOCAL_DIM));
-    matrix_mult(eargs, dev_A, dev_B, dev_C, M, N, K).wait();
+    //matrix_mult(eargs, dev_A, dev_B, dev_C, M, N, K).wait();
 
     //Copy from device to host
     queue.enqueueReadBuffer(dev_C, CL_TRUE, 0, size_C, C);
@@ -135,8 +146,8 @@ int main(int argc, char** argv)
     if (f == NULL) {
       throw std::ios_base::failure(NULL);
     }
-    for (int i = 0; i < M; ++i) {
-      for (int j = 0; j < K; ++j) {
+    for (int i = M / 2; i < K - M / 2; ++i) {
+      for (int j = M / 2; j < K - M / 2; ++j) {
         fprintf(f, "%.2f ", C[i * K + j]);
       }
       fprintf(f, "\n");
