@@ -10,6 +10,8 @@
 #include <string>
 #include <cmath>
 
+#define USE_LOCAL_MEMORY
+
 int main(int argc, char** argv)
 {
   if (argc != 3) {
@@ -78,27 +80,32 @@ int main(int argc, char** argv)
     //Create data to send to kernel
     int M, N;
     input >> N >> M;
-    int K = N + M;
 
-    float *A = new float [K * K];
+    float *A = new float [(N + M - 1) * (N + M - 1)];
     float *B = new float [M * M];
-    float *C = new float [K * K];
+    float *C = new float [(N + M - 1) * (N + M - 1)];
 
-    for (int j = 0; j < K; ++j)
-    {
-      A[j] = 0;
-      A[(K - 1) * K + j] = 0;
+    for (int i = 0; i < M / 2; ++i) {
+      for (int j = 0; j < (N + M - 1); ++j) {
+        A[i * (N + M - 1) + j] = 0;
+      }
     }
 
-    for (int i =  M / 2; i < K - M / 2; ++i) {
+    for (int i =  M / 2; i < N + M / 2; ++i) {
       for (int j = 0; j < M / 2; ++j) {
-        A[K * i + j] = 0;
+        A[(N + M - 1) * i + j] = 0;
       }
-      for (int j = M / 2; j < K - M / 2; ++j) {
-        input >> A[K * i + j];
+      for (int j = M / 2; j < N + M / 2; ++j) {
+        input >> A[(N + M - 1) * i + j];
       }
-      for (int j = K - M / 2; j < K; ++j) {
-        A[K * i + j] = 0;
+      for (int j = N + M / 2; j < (N + M - 1); ++j) {
+        A[(N + M - 1) * i + j] = 0;
+      }
+    }
+
+    for (int i = N + M / 2; i < (N + M - 1); ++i) {
+      for (int j = 0; j < (N + M - 1); ++j) {
+        A[(N + M - 1) * i + j] = 0;
       }
     }
 
@@ -111,13 +118,15 @@ int main(int argc, char** argv)
     input.close();
 
     //Allocate device buffers for data
-    int size_A = sizeof(float) * (N + M) * (N + M);
+    int size_A = sizeof(float) * (N + M - 1) * (N + M - 1);
     int size_B = sizeof(float) * M * M;
-    int size_C = sizeof(float) * (N + M) * (N + M);
+    int size_C = sizeof(float) * (N + M - 1) * (N + M - 1);
 
     cl::Buffer dev_A(context, CL_MEM_READ_ONLY, size_A);
     cl::Buffer dev_B(context, CL_MEM_READ_ONLY, size_B);
     cl::Buffer dev_C(context, CL_MEM_WRITE_ONLY, size_C);
+
+        
 
     //Copy from host to command queue
     queue.enqueueWriteBuffer(dev_A, CL_TRUE, 0, size_A, A);
@@ -128,17 +137,36 @@ int main(int argc, char** argv)
     int limit = (int)sqrt(max_wg_size);
 
 
-    const size_t X_LOCAL_DIM = M;//(int)(sqrt(max_wg_size));
-    const size_t Y_LOCAL_DIM = M;//(int)(sqrt(max_wg_size));
-    const size_t X_GLOBAL_DIM = 0;// d1;
-    const size_t Y_GLOBAL_DIM = 0;//;
-
+    const size_t X_LOCAL_DIM = limit;
+    const size_t Y_LOCAL_DIM = limit;
+    const size_t X_GLOBAL_DIM = (N + M - 1) + limit - (N + M - 1) % limit;
+    const size_t Y_GLOBAL_DIM = (N + M - 1) + limit - (N + M - 1) % limit;
+    
+    //cl::Buffer tmp(context, CL_MEM_WRITE_ONLY, (X_LOCAL_DIM + M / 2) * (Y_LOCAL_DIM + M / 2));
+    
 
     //Load kernel from OpenCL source
-    auto conv_global = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, int , int, int>(program, "conv_global");
-    cl::EnqueueArgs eargs(queue, cl::NullRange, cl::NDRange(X_GLOBAL_DIM, Y_GLOBAL_DIM), cl::NDRange(X_LOCAL_DIM, Y_LOCAL_DIM));
-    //matrix_mult(eargs, dev_A, dev_B, dev_C, M, N, K).wait();
+//#undef USE_LOCAL_MEMORY
 
+#ifdef USE_LOCAL_MEMORY
+    printf("Using local memory\n");
+    const size_t local_size = (limit + M - 1) * (limit + M - 1) * sizeof(float);
+    //cl::Buffer tmp(context, CL_MEM_READ_WRITE, local_size);
+    auto conv_shared = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, cl::LocalSpaceArg& , int, int>(program, "conv_shared");
+    cl::EnqueueArgs eargs(queue, cl::NullRange, cl::NDRange(X_GLOBAL_DIM, Y_GLOBAL_DIM), cl::NDRange(X_LOCAL_DIM, Y_LOCAL_DIM));
+    cl::Event evt = conv_shared(eargs, dev_A, dev_B, dev_C, cl::__local(local_size), N, M);
+#else
+    printf("Using global memory\n");
+    auto conv_global = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, int, int>(program, "conv_global");
+    cl::EnqueueArgs eargs(queue, cl::NullRange, cl::NDRange(X_GLOBAL_DIM, Y_GLOBAL_DIM), cl::NDRange(X_LOCAL_DIM, Y_LOCAL_DIM));
+    cl::Event evt = conv_global(eargs, dev_A, dev_B, dev_C, N, M);
+#endif
+
+    evt.wait();
+    cl_ulong start_time = evt.getProfilingInfo<CL_PROFILING_COMMAND_START>();
+    cl_ulong end_time = evt.getProfilingInfo<CL_PROFILING_COMMAND_END>();
+    cl_ulong time = end_time - start_time;
+    std::cout << std::setprecision(3) << "Total time: " << time / (float)10e6 << " ms" << std::endl;
     //Copy from device to host
     queue.enqueueReadBuffer(dev_C, CL_TRUE, 0, size_C, C);
 
@@ -146,9 +174,10 @@ int main(int argc, char** argv)
     if (f == NULL) {
       throw std::ios_base::failure(NULL);
     }
-    for (int i = M / 2; i < K - M / 2; ++i) {
-      for (int j = M / 2; j < K - M / 2; ++j) {
-        fprintf(f, "%.2f ", C[i * K + j]);
+
+    for (int i = M / 2; i < N + M / 2; ++i) {
+      for (int j = M  / 2; j < N + M / 2; ++j) {
+        fprintf(f, "%2.2f ", C[i * (N + M - 1) + j]);
       }
       fprintf(f, "\n");
     }
