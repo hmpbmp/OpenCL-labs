@@ -47,3 +47,4 @@ mark_as_advanced(
   OPENCL_INCLUDE_DIR
   OPENCL_LIBRARY
   )
+  
