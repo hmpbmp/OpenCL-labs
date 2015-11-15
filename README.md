@@ -1,7 +1,7 @@
 ## OpenCL/CUDA laboratory
 
 #### In this repository I keep source code for my OpenCL laboratories
-[Second laboratory task](https://docs.google.com/viewer?a=v&pid=sites&srcid=ZGVmYXVsdGRvbWFpbnxwcmltYXRjdWRhfGd4OjczZWE5MmFkZjk1N2EyZGI)
+[Third laboratory task](https://docs.google.com/viewer?a=v&pid=sites&srcid=ZGVmYXVsdGRvbWFpbnxwcmltYXRjdWRhfGd4OjZmOTQ4NTcyNjNhM2M0OGU)
 
 
 ## Build
