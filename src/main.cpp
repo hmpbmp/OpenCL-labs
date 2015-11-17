@@ -10,7 +10,7 @@
 #include <string>
 #include <cmath>
 
-#define USE_LOCAL_MEMORY
+#define OPTIMIZATION
 
 int main(int argc, char** argv)
 {
@@ -58,7 +58,7 @@ int main(int argc, char** argv)
     cl::CommandQueue queue(context, devices[0], CL_QUEUE_PROFILING_ENABLE);
 
     //Load OpenCL source 
-    std::ifstream cl_file("../src/convolution.cl");
+    std::ifstream cl_file("../src/reduction.cl");
     cl_file.exceptions(std::ifstream::failbit);
 
     std::string cl_string(std::istreambuf_iterator<char>(cl_file), (std::istreambuf_iterator<char>()));
@@ -78,110 +78,74 @@ int main(int argc, char** argv)
     }
 
     //Create data to send to kernel
-    int M, N;
-    input >> N >> M;
+    int N;
+    input >> N;
 
-    float *A = new float [(N + M - 1) * (N + M - 1)];
-    float *B = new float [M * M];
-    float *C = new float [(N + M - 1) * (N + M - 1)];
+    float *A = new float [N];
 
-    for (int i = 0; i < M / 2; ++i) {
-      for (int j = 0; j < (N + M - 1); ++j) {
-        A[i * (N + M - 1) + j] = 0;
-      }
-    }
-
-    for (int i =  M / 2; i < N + M / 2; ++i) {
-      for (int j = 0; j < M / 2; ++j) {
-        A[(N + M - 1) * i + j] = 0;
-      }
-      for (int j = M / 2; j < N + M / 2; ++j) {
-        input >> A[(N + M - 1) * i + j];
-      }
-      for (int j = N + M / 2; j < (N + M - 1); ++j) {
-        A[(N + M - 1) * i + j] = 0;
-      }
-    }
-
-    for (int i = N + M / 2; i < (N + M - 1); ++i) {
-      for (int j = 0; j < (N + M - 1); ++j) {
-        A[(N + M - 1) * i + j] = 0;
-      }
-    }
-
-    for (int i = 0; i < M; ++i) {
-      for (int j = 0; j < M; ++j) {
-        input >> B[M * i + j];
-      }
+    for (int i = 0; i < N; ++i) {
+      input >> A[i];
     }
 
     input.close();
 
-    //Allocate device buffers for data
-    int size_A = sizeof(float) * (N + M - 1) * (N + M - 1);
-    int size_B = sizeof(float) * M * M;
-    int size_C = sizeof(float) * (N + M - 1) * (N + M - 1);
+    int limit = max_wg_size;
+    const size_t LOCAL_DIM = limit;
+    float *B;
+    cl_ulong sum_time = 0;
 
-    cl::Buffer dev_A(context, CL_MEM_READ_ONLY, size_A);
-    cl::Buffer dev_B(context, CL_MEM_READ_ONLY, size_B);
-    cl::Buffer dev_C(context, CL_MEM_WRITE_ONLY, size_C);
+    while (N >= 2 * limit) {
+      int size_A = sizeof(float) * N;
+      cl::Buffer dev_A(context, CL_MEM_READ_ONLY, size_A);
+      queue.enqueueWriteBuffer(dev_A, CL_TRUE, 0, size_A, A);
+      size_t GLOBAL_DIM = N % limit == 0 ? N : N + limit - N % limit;
 
-        
+      int M = GLOBAL_DIM / LOCAL_DIM;
+      B = new float[M];
+      int size_B = sizeof(float) * M;
 
-    //Copy from host to command queue
-    queue.enqueueWriteBuffer(dev_A, CL_TRUE, 0, size_A, A);
-    queue.enqueueWriteBuffer(dev_B, CL_TRUE, 0, size_B, B);
+      cl::Buffer dev_B(context, CL_MEM_READ_WRITE, size_B);
+      queue.enqueueWriteBuffer(dev_B, CL_TRUE, 0, size_B, B);
 
-    
-    //Define work-group and work-item sizes
-    int limit = (int)sqrt(max_wg_size);
-
-
-    const size_t X_LOCAL_DIM = limit;
-    const size_t Y_LOCAL_DIM = limit;
-    const size_t X_GLOBAL_DIM = (N + M - 1) + limit - (N + M - 1) % limit;
-    const size_t Y_GLOBAL_DIM = (N + M - 1) + limit - (N + M - 1) % limit;
-    
-    //cl::Buffer tmp(context, CL_MEM_WRITE_ONLY, (X_LOCAL_DIM + M / 2) * (Y_LOCAL_DIM + M / 2));
-    
-
-    //Load kernel from OpenCL source
-//#undef USE_LOCAL_MEMORY
-
-#ifdef USE_LOCAL_MEMORY
-    printf("Using local memory\n");
-    const size_t local_size = (limit + M - 1) * (limit + M - 1) * sizeof(float);
-    //cl::Buffer tmp(context, CL_MEM_READ_WRITE, local_size);
-    auto conv_shared = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, cl::LocalSpaceArg& , int, int>(program, "conv_shared");
-    cl::EnqueueArgs eargs(queue, cl::NullRange, cl::NDRange(X_GLOBAL_DIM, Y_GLOBAL_DIM), cl::NDRange(X_LOCAL_DIM, Y_LOCAL_DIM));
-    cl::Event evt = conv_shared(eargs, dev_A, dev_B, dev_C, cl::__local(local_size), N, M);
+      //Load kernel from OpenCL source
+#undef OPTIMIZATION
+#ifndef OPTIMIZATION
+      printf("Using simple reduction\n");
+      const size_t local_size = limit * sizeof(float);
+      auto reduction = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::LocalSpaceArg&, int>(program, "reduction");
+      cl::EnqueueArgs eargs(queue, cl::NullRange, cl::NDRange(GLOBAL_DIM), cl::NDRange(LOCAL_DIM));
+      cl::Event evt = reduction(eargs, dev_A, dev_B, cl::__local(local_size), N);
 #else
-    printf("Using global memory\n");
-    auto conv_global = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::Buffer&, int, int>(program, "conv_global");
-    cl::EnqueueArgs eargs(queue, cl::NullRange, cl::NDRange(X_GLOBAL_DIM, Y_GLOBAL_DIM), cl::NDRange(X_LOCAL_DIM, Y_LOCAL_DIM));
-    cl::Event evt = conv_global(eargs, dev_A, dev_B, dev_C, N, M);
+      printf("Using optimized reduction\n");
+      const size_t local_size = limit * sizeof(float);
+      auto opt_reduction = cl::make_kernel<cl::Buffer &, cl::Buffer &, cl::LocalSpaceArg&, int>(program, "opt_reduction");
+      cl::EnqueueArgs eargs(queue, cl::NullRange, cl::NDRange(GLOBAL_DIM), cl::NDRange(LOCAL_DIM));
+      cl::Event evt = opt_reduction(eargs, dev_A, dev_B, cl::__local(local_size), N);
 #endif
-
-    evt.wait();
-    cl_ulong start_time = evt.getProfilingInfo<CL_PROFILING_COMMAND_START>();
-    cl_ulong end_time = evt.getProfilingInfo<CL_PROFILING_COMMAND_END>();
-    cl_ulong time = end_time - start_time;
-    std::cout << std::setprecision(3) << "Total time: " << time / (float)10e6 << " ms" << std::endl;
-    //Copy from device to host
-    queue.enqueueReadBuffer(dev_C, CL_TRUE, 0, size_C, C);
+      evt.wait();
+      cl_ulong start_time = evt.getProfilingInfo<CL_PROFILING_COMMAND_START>();
+      cl_ulong end_time = evt.getProfilingInfo<CL_PROFILING_COMMAND_END>();
+      cl_ulong time = end_time - start_time;
+      sum_time += time;
+      //Copy from device to host
+      queue.enqueueReadBuffer(dev_B, CL_TRUE, 0, size_B, B);
+      delete[] A;
+      A = B;
+      N = M;
+    }
 
     FILE *f = std::fopen(argv[2], "w+");
     if (f == NULL) {
       throw std::ios_base::failure(NULL);
     }
-
-    for (int i = M / 2; i < N + M / 2; ++i) {
-      for (int j = M  / 2; j < N + M / 2; ++j) {
-        fprintf(f, "%2.2f ", C[i * (N + M - 1) + j]);
-      }
-      fprintf(f, "\n");
+    for (int i = 1; i < N; ++i) {
+      B[0] += B[i];
     }
+    fprintf(f, "%.2f ", B[0]);
     fclose(f);
+    delete[] B;
+    std::cout << std::setprecision(3) << "Total time: " << sum_time / (float)10e6 << " ms" << std::endl;
+
   }
   catch(cl::Error const & err){
     std::cout << std::endl << "Error type:" << err.what() << std::endl;
