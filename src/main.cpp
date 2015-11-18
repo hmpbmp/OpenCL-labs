@@ -93,8 +93,11 @@ int main(int argc, char** argv)
     const size_t LOCAL_DIM = limit;
     float *B;
     cl_ulong sum_time = 0;
-
-    while (N >= 2 * limit) {
+    if (N < limit) {
+      B = A;
+      printf("No GPU calculations..\n");
+    }
+    while (N >= limit) {
       int size_A = sizeof(float) * N;
       cl::Buffer dev_A(context, CL_MEM_READ_ONLY, size_A);
       queue.enqueueWriteBuffer(dev_A, CL_TRUE, 0, size_A, A);
